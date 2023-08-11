@@ -1,4 +1,4 @@
-package joy
+package imu
 
 import (
 	"bytes"
