@@ -1,28 +1,35 @@
 package imu
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"math"
 )
 
 // 弧度转角度的系数
 const RAD_TO_DEG = 180 / math.Pi
 
-// 四元数
-type Quat [4]float32
+// 四元数, w,x,y,z
+type Quat [4]float64
+
+// https://github.com/Unity-Technologies/UnityCsReference/blob/af451c32afd761852b06ced366bb04c3d5d40e16/Runtime/Export/Math/Quaternion.cs#L87
+func (lhs Quat) Multiply(rhs Quat) Quat {
+	x := lhs[0]*rhs[1] + lhs[1]*rhs[0] + lhs[2]*rhs[3] - lhs[3]*rhs[2]
+	y := lhs[0]*rhs[2] + lhs[2]*rhs[0] + lhs[3]*rhs[1] - lhs[1]*rhs[3]
+	z := lhs[0]*rhs[3] + lhs[3]*rhs[0] + lhs[1]*rhs[2] - lhs[2]*rhs[1]
+	w := lhs[0]*rhs[0] - lhs[1]*rhs[1] - lhs[2]*rhs[2] - lhs[3]*rhs[3]
+	return Quat{w, x, y, z}
+}
 
 // 6轴IMU状态
 type IMU6Axis struct {
 	//加速度，单位：g
-	AccelX float32
-	AccelY float32
-	AccelZ float32
+	AccelX float64
+	AccelY float64
+	AccelZ float64
 	//角速度，单位：rad/s
-	GyroX float32
-	GyroY float32
-	GyroZ float32
+	GyroX float64
+	GyroY float64
+	GyroZ float64
 }
 
 // Mahony算法的客户端，用于从服务协程中获取欧拉角
@@ -48,9 +55,9 @@ func (c MahonyClient) UpdateIMU(imu IMU6Axis) Quat {
 
 type MahonyConfig struct {
 	InitQuat   Quat    //初始四元数
-	SampleFreq float32 // sample frequency in Hz
-	TwoKpDef   float32 // 2 * proportional gain
-	TwoKiDef   float32 // 2 * integral gain
+	SampleFreq float64 // sample frequency in Hz
+	TwoKpDef   float64 // 2 * proportional gain
+	TwoKiDef   float64 // 2 * integral gain
 }
 
 func DefaultMahonyConfig() MahonyConfig {
@@ -58,7 +65,7 @@ func DefaultMahonyConfig() MahonyConfig {
 		InitQuat:   Quat{1.0, 0, 0, 0},
 		SampleFreq: 76.0,
 		TwoKpDef:   3.5,
-		TwoKiDef:   0.0,
+		TwoKiDef:   0.05,
 	}
 }
 
@@ -99,19 +106,19 @@ func runMahony(ctx context.Context, config MahonyConfig, client MahonyClient) {
 type MahonyAHRS struct {
 	MahonyConfig
 	// integral error terms scaled by Ki
-	integralFBx float32
-	integralFBy float32
-	integralFBz float32
+	integralFBx float64
+	integralFBy float64
+	integralFBz float64
 	q           Quat
 }
 
 // ---------------------------------------------------------------------------------------------------
 // IMU algorithm update
 func (state *MahonyAHRS) updateIMU(imu IMU6Axis) {
-	var recipNorm float32
-	var halfvx, halfvy, halfvz float32
-	var halfex, halfey, halfez float32
-	var qa, qb, qc float32
+	var recipNorm float64
+	var halfvx, halfvy, halfvz float64
+	var halfex, halfey, halfez float64
+	var qa, qb, qc float64
 
 	gx, gy, gz, ax, ay, az := imu.GyroX, imu.GyroY, imu.GyroZ, imu.AccelX, imu.AccelY, imu.AccelZ
 	q0, q1, q2, q3 := state.q[0], state.q[1], state.q[2], state.q[3]
@@ -182,20 +189,21 @@ func (state *MahonyAHRS) updateIMU(imu IMU6Axis) {
 // ---------------------------------------------------------------------------------------------------
 // Fast inverse square-root
 // See: http://en.wikipedia.org/wiki/Fast_inverse_square_root
-func invSqrt(x float32) float32 {
-	halfx := 0.5 * x
-	y := x
-	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.BigEndian, y)
-	// fmt.Printf("% x\n", buf.Bytes())
-	var i int32
-	binary.Read(buf, binary.BigEndian, &i)
-	// println(i)
-	i = 0x5f3759df - (i >> 1)
-	binary.Write(buf, binary.BigEndian, i)
-	binary.Read(buf, binary.BigEndian, &y)
-	y = y * (1.5 - (halfx * y * y))
-	return y
+func invSqrt(x float64) float64 {
+	// halfx := 0.5 * x
+	// y := x
+	// buf := new(bytes.Buffer)
+	// binary.Write(buf, binary.BigEndian, y)
+	// // fmt.Printf("% x\n", buf.Bytes())
+	// var i int32
+	// binary.Read(buf, binary.BigEndian, &i)
+	// // println(i)
+	// i = 0x5f3759df - (i >> 1)
+	// binary.Write(buf, binary.BigEndian, i)
+	// binary.Read(buf, binary.BigEndian, &y)
+	// y = y * (1.5 - (halfx * y * y))
+	// return y
+	return 1 / math.Sqrt(x)
 }
 
 /*
@@ -204,7 +212,7 @@ func invSqrt(x float32) float32 {
 *
 */
 func (q Quat) ToEulerAngle() (roll, pitch, yaw float64) {
-	x, y, z, w := float64(q[3]), float64(q[0]), float64(q[1]), float64(q[2])
+	w, x, y, z := float64(q[0]), float64(q[1]), float64(q[2]), float64(q[3])
 	// roll (x-axis rotation)
 	sinr_cosp := +2.0 * (w*x + y*z)
 	cosr_cosp := +1.0 - 2.0*(x*x+y*y)
@@ -221,4 +229,20 @@ func (q Quat) ToEulerAngle() (roll, pitch, yaw float64) {
 	cosy_cosp := +1.0 - 2.0*(y*y+z*z)
 	yaw = math.Atan2(siny_cosp, cosy_cosp)
 	return
+}
+
+// 欧拉角转四元数
+func FromEulerAngle(roll, pitch, yaw float64) Quat {
+	cr2 := math.Cos(roll * 0.5)
+	cp2 := math.Cos(pitch * 0.5)
+	cy2 := math.Cos(yaw * 0.5)
+	sr2 := math.Sin(roll * 0.5)
+	sp2 := math.Sin(pitch * 0.5)
+	sy2 := math.Sin(yaw * 0.5)
+
+	w := cr2*cp2*cy2 + sr2*sp2*sy2
+	x := sr2*cp2*cy2 - cr2*sp2*sy2
+	y := cr2*sp2*cy2 + sr2*cp2*sy2
+	z := cr2*cp2*sy2 - sr2*sp2*cy2
+	return Quat{float64(w), float64(x), float64(y), float64(z)}
 }
