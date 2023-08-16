@@ -65,7 +65,7 @@ func DefaultMahonyConfig() MahonyConfig {
 		InitQuat:   Quat{1.0, 0, 0, 0},
 		SampleFreq: 76.0,
 		TwoKpDef:   3.5,
-		TwoKiDef:   0.05,
+		TwoKiDef:   0.0,
 	}
 }
 
